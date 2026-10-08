@@ -1,0 +1,16 @@
+<clickhouse>
+  <path>./</path>
+  <listen_host>127.0.0.1</listen_host>
+  <http_port>8123</http_port>
+  <tcp_port>9000</tcp_port>
+  <profiles>
+    <default/>
+  </profiles>
+  <users>
+    <default>
+      <password/>
+      <networks><ip>127.0.0.1</ip></networks>
+      <profile>default</profile>
+    </default>
+  </users>
+</clickhouse>
