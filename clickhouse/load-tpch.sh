@@ -22,6 +22,11 @@ work_dir=$(dirname "$script_path")
 client="$work_dir/.clickhouse/bin/clickhouse-client"
 database="tpch_sf$sf"
 
+show_connection_command() {
+  printf '\nConnect with:\n  %q --host=127.0.0.1 --database=%q\n' "$client" "$database"
+}
+trap show_connection_command EXIT
+
 exists=$("$client" --host=127.0.0.1 --query "EXISTS DATABASE $database")
 if [[ "$exists" != 0 ]]; then
   echo "Database $database already exists" >&2
