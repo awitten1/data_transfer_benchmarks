@@ -17,3 +17,11 @@ To load TPC-H from ClickHouse's [public S3 datasets](https://clickhouse.com/docs
 ```
 
 The loader creates a database named `tpch_sf1` and imports the eight tables directly from S3.
+
+To estimate how much time is added by returning query results, run the HTTP benchmark against a loaded database:
+
+```sh
+./benchmark-transfer.sh 10
+```
+
+For each result limit, it compares five runs that return `orders` rows with five runs using ClickHouse's `Null` output format. It writes a CSV with a header to stdout, with curl's median client times and downloaded body bytes alongside `system.query_log`'s median server times and HTTP bytes. ClickHouse's HTTP byte count includes protocol overhead, so it should be slightly larger than curl's body byte count. The percentage estimates time added by returning results, including encoding and transfer; it is not network time alone.
