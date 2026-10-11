@@ -21,7 +21,8 @@ The loader creates a database named `tpch_sf1` and imports the eight tables dire
 To estimate how much time is added by returning query results, run the HTTP benchmark against a loaded database:
 
 ```sh
-./benchmark-transfer.sh 10
+./benchmark-transfer.sh 10 partial > partial_10.csv
+./benchmark-transfer.sh 10 full > full_10.csv
 ```
 
-For each result limit, it compares five runs that return `orders` rows with five runs using ClickHouse's `Null` output format. It writes a CSV with a header to stdout, with curl's median client times and downloaded body bytes alongside `system.query_log`'s median server times and HTTP bytes. ClickHouse's HTTP byte count includes protocol overhead, so it should be slightly larger than curl's body byte count. The percentage estimates time added by returning results, including encoding and transfer; it is not network time alone.
+Both modes select all columns from `lineitem`. `partial` (the default) sorts by `l_orderkey, l_extendedprice`, using the table's storage order on `l_orderkey`. `full` sorts by `l_extendedprice, l_orderkey`, which requires reading the entire table. For each result limit, the script runs one warmup round (round 0) and five measurement rounds, alternating between `RowBinary` and `Null` output. It prints each query to stderr and writes its CSV row to stdout after the corresponding `query_log` entry is available. Each row contains curl's client time and downloaded body bytes alongside `system.query_log`'s server duration, HTTP bytes, rows read, and rows returned. ClickHouse's HTTP byte count includes protocol overhead. The script leaves all analysis to the CSV consumer.
