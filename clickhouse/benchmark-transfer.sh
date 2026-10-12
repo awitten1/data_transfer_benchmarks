@@ -22,7 +22,10 @@ fi
 script_path=$(realpath "${BASH_SOURCE[0]}")
 script_dir=$(dirname "$script_path")
 clickhouse="$script_dir/.clickhouse/bin/clickhouse"
-run_id="transfer_${sf}_${mode}_${offset}_$$_$(date +%s%N)"
+run_id="t$(date +%s%N)_$$"
+query_num=0
+formats=(RowBinary Null Native ArrowStream Parquet CSV JSONEachRow)
+format_count=${#formats[@]}
 
 printf 'sf,sort_mode,limit,offset,round,output_format,query_id,client_elapsed_s,client_body_bytes,server_duration_ms,server_http_bytes,read_rows,result_rows\n'
 for limit in 10000 100000 1000000 10000000; do
@@ -40,16 +43,12 @@ SETTINGS query_plan_optimize_lazy_materialization = 0,
          use_query_cache = 0"
   fi
 
-  # Round 0 warms the query; the next five rounds are measured.
+  # Round 0 warms every format; rotate the order for the measured rounds.
   for round in 0 1 2 3 4 5; do
-    if (( round % 2 == 0 )); then
-      formats=(RowBinary Null)
-    else
-      formats=(Null RowBinary)
-    fi
-
-    for format in "${formats[@]}"; do
-      query_id="$run_id:$limit:$offset:$format:$round"
+    for (( i=0; i<format_count; i++ )); do
+      format=${formats[$(((round + i) % format_count))]}
+      query_num=$((query_num + 1))
+      query_id="${run_id}_${query_num}"
       printf 'query_id=%s output_format=%s\n%s\n\n' "$query_id" "$format" "$query" >&2
 
       curl_args=(--silent --show-error --fail --max-time 600 --get http://127.0.0.1:8123/ \
