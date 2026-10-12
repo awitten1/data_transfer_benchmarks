@@ -2,8 +2,8 @@
 set -euo pipefail
 export LC_ALL=C
 
-if [[ $# -lt 1 || $# -gt 2 || ! $1 =~ ^(1|10|100)$ ]]; then
-  echo "Usage: $0 SCALE_FACTOR (1, 10, or 100) [partial|full]" >&2
+if [[ $# -lt 1 || $# -gt 3 || ! $1 =~ ^(1|10|100)$ ]]; then
+  echo "Usage: $0 SCALE_FACTOR (1, 10, or 100) [partial|full] [OFFSET]" >&2
   exit 1
 fi
 
@@ -13,24 +13,29 @@ if [[ $mode != partial && $mode != full ]]; then
   echo "Sort mode must be partial or full" >&2
   exit 1
 fi
+offset=${3:-100000}
+if [[ ! $offset =~ ^(0|[1-9][0-9]*)$ ]]; then
+  echo "Offset must be a non-negative integer" >&2
+  exit 1
+fi
 
 script_path=$(realpath "${BASH_SOURCE[0]}")
 script_dir=$(dirname "$script_path")
 clickhouse="$script_dir/.clickhouse/bin/clickhouse"
-run_id="transfer_${sf}_${mode}_$$_$(date +%s%N)"
+run_id="transfer_${sf}_${mode}_${offset}_$$_$(date +%s%N)"
 
-printf 'sf,sort_mode,limit,round,output_format,query_id,client_elapsed_s,client_body_bytes,server_duration_ms,server_http_bytes,read_rows,result_rows\n'
-for limit in 10000 100000 1000000; do
+printf 'sf,sort_mode,limit,offset,round,output_format,query_id,client_elapsed_s,client_body_bytes,server_duration_ms,server_http_bytes,read_rows,result_rows\n'
+for limit in 10000 100000 1000000 10000000; do
   if [[ $mode == partial ]]; then
     query="SELECT * FROM tpch_sf${sf}.lineitem
 ORDER BY l_orderkey, l_extendedprice
-LIMIT $limit
+LIMIT $limit OFFSET $offset
 SETTINGS query_plan_optimize_lazy_materialization = 0,
          use_query_cache = 0"
   else
     query="SELECT * FROM tpch_sf${sf}.lineitem
 ORDER BY l_extendedprice, l_orderkey
-LIMIT $limit
+LIMIT $limit OFFSET $offset
 SETTINGS query_plan_optimize_lazy_materialization = 0,
          use_query_cache = 0"
   fi
@@ -44,16 +49,22 @@ SETTINGS query_plan_optimize_lazy_materialization = 0,
     fi
 
     for format in "${formats[@]}"; do
-      query_id="$run_id:$limit:$format:$round"
+      query_id="$run_id:$limit:$offset:$format:$round"
       printf 'query_id=%s output_format=%s\n%s\n\n' "$query_id" "$format" "$query" >&2
 
-      sample=$(curl --silent --show-error --fail --max-time 600 --get http://127.0.0.1:8123/ \
+      curl_args=(--silent --show-error --fail --max-time 600 --get http://127.0.0.1:8123/ \
         --data-urlencode "query=$query" \
         --data-urlencode "output_format=$format" \
         --data-urlencode "query_id=$query_id" \
         --data-urlencode 'enable_http_compression=0' \
-        --output /dev/null \
-        --write-out '%{time_total} %{size_download}')
+        --output /dev/null)
+
+      if (( round == 0 )); then
+        curl "${curl_args[@]}"
+        continue
+      fi
+
+      sample=$(curl "${curl_args[@]}" --write-out '%{time_total} %{size_download}')
 
       read -r seconds bytes <<< "$sample"
       if [[ $format == Null && $bytes != 0 ]]; then
@@ -81,8 +92,8 @@ SQL
       fi
       read -r server_ms server_bytes read_rows result_rows <<< "$server_metrics"
 
-      printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
-        "$sf" "$mode" "$limit" "$round" "$format" "$query_id" \
+      printf '%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s\n' \
+        "$sf" "$mode" "$limit" "$offset" "$round" "$format" "$query_id" \
         "$seconds" "$bytes" "$server_ms" "$server_bytes" \
         "$read_rows" "$result_rows"
     done
